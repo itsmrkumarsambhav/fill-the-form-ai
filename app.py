@@ -1,0 +1,154 @@
+import os
+import time
+import json
+import threading
+import requests
+from datetime import datetime, timezone, timedelta
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+# Enable CORS for all domains (or restrict it to your chrome extension ID for better security)
+CORS(app)
+
+# Load server API keys from environment variable, split by comma
+SERVER_KEYS_ENV = os.environ.get("GEMINI_API_KEYS", "")
+SERVER_KEYS = [k.strip() for k in SERVER_KEYS_ENV.split(",") if k.strip()]
+
+# ---------------------------------------------------------
+# ANTI-SLEEP HACK: Background Thread to Ping Itself
+# ---------------------------------------------------------
+def keep_awake():
+    """
+    Pings the server itself every 10 minutes to prevent Render free tier from sleeping,
+    EXCEPT between 12 AM and 6 AM IST.
+    """
+    # Render sets RENDER_EXTERNAL_URL in the environment automatically
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "http://127.0.0.1:5000")
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    
+    print(f"[*] Started Anti-Sleep thread. Pinging {render_url}/ping every 10 minutes (Pausing 12AM-6AM IST).")
+    while True:
+        try:
+            time.sleep(600)  # Sleep for 10 minutes (600 seconds)
+            
+            # Check current time in IST
+            now_ist = datetime.now(ist_tz)
+            
+            # If time is between 12:00 AM (0) and 5:59 AM (5), do not ping
+            if 0 <= now_ist.hour < 6:
+                print(f"[Keep-Awake] Server is in sleep mode (Current time: {now_ist.strftime('%I:%M %p')} IST). Skipping ping.")
+                continue
+                
+            res = requests.get(f"{render_url}/ping", timeout=10)
+            print(f"[Keep-Awake] Pinged server: {res.status_code}")
+        except Exception as e:
+            print(f"[Keep-Awake] Ping failed: {e}")
+
+# Start the thread in daemon mode so it exits when the app stops
+threading.Thread(target=keep_awake, daemon=True).start()
+
+# ---------------------------------------------------------
+# ENDPOINTS
+# ---------------------------------------------------------
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    """Simple endpoint for the anti-sleep thread and uptime checks."""
+    return jsonify({"status": "awake", "time": time.time()}), 200
+
+def call_gemini_api(keys_to_try, payload):
+    """
+    Tries calling the Gemini API with the provided keys one by one.
+    Returns the first successful response JSON.
+    """
+    if not keys_to_try:
+        return {"error": "No API keys available."}, 500
+
+    for key in keys_to_try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
+            headers = {'Content-Type': 'application/json'}
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json(), 200
+            else:
+                print(f"[Gemini Proxy] Key failed with status {response.status_code}: {response.text}")
+                # If rate limited (429) or unauthorized (401), try the next key
+                continue
+                
+        except Exception as e:
+            print(f"[Gemini Proxy] Exception with key: {e}")
+            continue
+            
+    return {"error": "All provided API keys failed or were rate-limited."}, 500
+
+@app.route('/api/gemini/raw', methods=['POST'])
+def gemini_raw():
+    """Proxy for raw text generation (e.g. CAPTCHA solving)."""
+    data = request.json
+    parts = data.get("parts", [])
+    user_keys = data.get("userKeys", [])
+    
+    # Try user keys first, then fallback to server keys
+    keys_to_try = user_keys + SERVER_KEYS
+    
+    payload = {
+        "contents": [{"parts": parts}]
+    }
+    
+    result, status = call_gemini_api(keys_to_try, payload)
+    
+    if status == 200:
+        try:
+            text = result["candidates"][0]["content"]["parts"][0]["text"]
+            return jsonify({"text": text}), 200
+        except KeyError:
+            return jsonify({"error": "Unexpected API response format."}), 500
+    
+    return jsonify(result), status
+
+@app.route('/api/gemini/json', methods=['POST'])
+def gemini_json():
+    """Proxy for JSON-forced generation (e.g. Form Extraction, Smart Fill)."""
+    data = request.json
+    parts = data.get("parts", [])
+    user_keys = data.get("userKeys", [])
+    
+    keys_to_try = user_keys + SERVER_KEYS
+    
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"responseMimeType": "application/json"}
+    }
+    
+    result, status = call_gemini_api(keys_to_try, payload)
+    
+    if status == 200:
+        try:
+            text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            # Clean up markdown code blocks if the API returned them despite JSON response type
+            if text.startswith('```json'):
+                text = text[7:]
+            if text.startswith('```'):
+                text = text[3:]
+            if text.endswith('```'):
+                text = text[:-3]
+                
+            text = text.strip()
+            
+            # Verify it's valid JSON before sending back
+            parsed_json = json.loads(text)
+            return jsonify(parsed_json), 200
+        except (KeyError, json.JSONDecodeError) as e:
+            print(f"[Gemini Proxy] JSON Parse Error: {e}\nText received: {result}")
+            return jsonify({"error": "Failed to parse JSON from Gemini."}), 500
+            
+    return jsonify(result), status
+
+if __name__ == '__main__':
+    # Render binds to 0.0.0.0 and dynamically assigns a PORT environment variable
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
