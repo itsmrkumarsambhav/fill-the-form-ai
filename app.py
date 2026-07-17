@@ -104,6 +104,22 @@ def verify_and_check_limits(id_token):
         if user_data.get('access') is not True:
             return {"error": "Access Denied by Administrator."}, 403
             
+        # Check for personal keys
+        personal_keys = []
+        personal_keys_str = user_data.get('personalApiKeys')
+        if personal_keys_str:
+            try:
+                import json
+                personal_keys_arr = json.loads(personal_keys_str)
+                personal_keys = [k.get('key') if isinstance(k, dict) else k for k in personal_keys_arr if (isinstance(k, dict) and k.get('key')) or isinstance(k, str)]
+            except:
+                pass
+
+        if personal_keys:
+            # Bypass limits, they are using their own keys
+            return {"uid": uid, "keys_to_try": personal_keys, "used_admin_keys": False}, 200
+
+        # Fallback to Admin keys, check permissions
         if user_data.get('useOwnerKeys') is not True:
             return {"error": "Owner keys disabled. Please use your own keys."}, 403
             
@@ -113,7 +129,8 @@ def verify_and_check_limits(id_token):
         if usage >= limit:
             return {"error": "Token limit exceeded."}, 403
             
-        return {"uid": uid}, 200
+        global SERVER_KEYS
+        return {"uid": uid, "keys_to_try": SERVER_KEYS, "used_admin_keys": True}, 200
     except Exception as e:
         return {"error": f"Invalid ID Token: {e}"}, 401
 
@@ -197,8 +214,8 @@ def gemini_raw():
         try:
             text = result["candidates"][0]["content"]["parts"][0]["text"]
             
-            # Increment Token Usage securely
-            if uid:
+            # Increment Token Usage securely only if admin keys were used
+            if uid and used_admin:
                 tokens_used = result.get("usageMetadata", {}).get("totalTokenCount", 0)
                 increment_usage(uid, tokens_used)
                 
@@ -218,13 +235,15 @@ def gemini_json():
     
     keys_to_try = user_keys[:]
     uid = None
+    used_admin = False
     
     if id_token and not user_keys:
         verification, status = verify_and_check_limits(id_token)
         if status != 200:
             return jsonify(verification), status
         uid = verification["uid"]
-        keys_to_try.extend(SERVER_KEYS)
+        keys_to_try.extend(verification.get("keys_to_try", []))
+        used_admin = verification.get("used_admin_keys", False)
     elif not user_keys:
         return jsonify({"error": "No API Keys or ID Token provided"}), 401
     
@@ -251,8 +270,8 @@ def gemini_json():
             # Verify it's valid JSON before sending back
             parsed_json = json.loads(text)
             
-            # Increment Token Usage securely
-            if uid:
+            # Increment Token Usage securely only if admin keys were used
+            if uid and used_admin:
                 tokens_used = result.get("usageMetadata", {}).get("totalTokenCount", 0)
                 increment_usage(uid, tokens_used)
                 
@@ -296,13 +315,15 @@ def gemini_stream():
     
     keys_to_try = user_keys[:]
     uid = None
+    used_admin = False
     
     if id_token and not user_keys:
         verification, status = verify_and_check_limits(id_token)
         if status != 200:
             return jsonify(verification), status
         uid = verification["uid"]
-        keys_to_try.extend(SERVER_KEYS)
+        keys_to_try.extend(verification.get("keys_to_try", []))
+        used_admin = verification.get("used_admin_keys", False)
     elif not user_keys:
         return jsonify({"error": "No API Keys or ID Token provided"}), 401
     
