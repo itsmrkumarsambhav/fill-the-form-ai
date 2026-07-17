@@ -108,7 +108,7 @@ def verify_and_check_limits(id_token):
             return {"error": "Owner keys disabled. Please use your own keys."}, 403
             
         usage = user_data.get('tokenUsage', 0)
-        limit = user_data.get('tokenLimit', 10000)
+        limit = user_data.get('tokenLimit', 1000000)
         
         if usage >= limit:
             return {"error": "Token limit exceeded."}, 403
