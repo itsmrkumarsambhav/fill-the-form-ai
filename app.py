@@ -182,6 +182,26 @@ def call_gemini_api(keys_to_try, payload):
             
     return {"error": "All provided API keys failed or were rate-limited."}, 500
 
+@app.route('/api/gemini/test', methods=['POST'])
+def gemini_test():
+    data = request.json
+    key = data.get("key")
+    if not key:
+        return jsonify({"error": "No key provided"}), 400
+    
+    # Use standard 1.5-flash for testing
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    payload = {"contents": [{"parts": [{"text": "reply ok"}]}]}
+    try:
+        import requests
+        res = requests.post(url, json=payload)
+        if res.status_code == 200:
+            return jsonify({"status": "valid"}), 200
+        else:
+            return jsonify({"status": "invalid", "details": res.text}), 400
+    except Exception as e:
+        return jsonify({"status": "invalid", "error": str(e)}), 500
+
 @app.route('/api/gemini/raw', methods=['POST'])
 def gemini_raw():
     """Proxy for raw text generation (e.g. CAPTCHA solving)."""
