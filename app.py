@@ -165,8 +165,12 @@ def call_gemini_api(keys_to_try, payload):
 
     for key in keys_to_try:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
-            headers = {'Content-Type': 'application/json'}
+            if key.startswith("AIza"):
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
+                headers = {'Content-Type': 'application/json'}
+            else:
+                url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+                headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {key}'}
             
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             
@@ -198,11 +202,17 @@ def gemini_test():
         return jsonify({"error": "No key provided"}), 400
     
     # Use standard 1.5-flash for testing
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    if key.startswith("AIza"):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        headers = {'Content-Type': 'application/json'}
+    else:
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {key}'}
+        
     payload = {"contents": [{"parts": [{"text": "reply ok"}]}]}
     try:
         import requests
-        res = requests.post(url, json=payload)
+        res = requests.post(url, headers=headers, json=payload)
         if res.status_code == 200:
             return jsonify({"status": "valid"}), 200
         else:
@@ -327,8 +337,12 @@ def call_gemini_stream_api(keys_to_try, payload):
 
     for key in keys_to_try:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse&key={key}"
-            headers = {'Content-Type': 'application/json'}
+            if key.startswith("AIza"):
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse&key={key}"
+                headers = {'Content-Type': 'application/json'}
+            else:
+                url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse"
+                headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {key}'}
             response = requests.post(url, headers=headers, json=payload, timeout=30, stream=True)
             
             if response.status_code == 200:
