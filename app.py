@@ -206,7 +206,7 @@ def gemini_test():
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
         headers = {'Content-Type': 'application/json'}
     else:
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {key}'}
         
     payload = {"contents": [{"parts": [{"text": "reply ok"}]}]}
