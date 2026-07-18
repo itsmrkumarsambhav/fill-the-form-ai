@@ -165,7 +165,8 @@ def call_gemini_api(keys_to_try, payload):
 
     for key in keys_to_try:
         try:
-            if key.startswith("AIza"):
+            # Most Gemini API keys (AIza, AQ, etc) can be passed in query string. OAuth tokens usually start with ya29.
+            if not key.startswith("ya29."):
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
                 headers = {'Content-Type': 'application/json'}
             else:
@@ -202,7 +203,7 @@ def gemini_test():
         return jsonify({"error": "No key provided"}), 400
     
     # Use the same model as extraction (3.1-flash-lite) for testing
-    if key.startswith("AIza"):
+    if not key.startswith("ya29."):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
         headers = {'Content-Type': 'application/json'}
     else:
@@ -219,6 +220,22 @@ def gemini_test():
             return jsonify({"status": "invalid", "details": res.text}), 400
     except Exception as e:
         return jsonify({"status": "invalid", "error": str(e)}), 500
+
+@app.route('/api/gemini/track_personal', methods=['POST'])
+def track_personal():
+    data = request.json
+    id_token = data.get("idToken")
+    tokens = data.get("tokens", 0)
+    
+    if id_token and tokens > 0:
+        try:
+            decoded = auth.verify_id_token(id_token)
+            uid = decoded['uid']
+            increment_personal_usage(uid, tokens)
+            return jsonify({"success": True}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 401
+    return jsonify({"error": "Invalid payload"}), 400
 
 @app.route('/api/gemini/raw', methods=['POST'])
 def gemini_raw():
