@@ -201,7 +201,7 @@ def gemini_test():
     if not key:
         return jsonify({"error": "No key provided"}), 400
     
-    # Use standard 1.5-flash for testing
+    # Use the same model as extraction (3.1-flash-lite) for testing
     if key.startswith("AIza"):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
         headers = {'Content-Type': 'application/json'}
@@ -232,13 +232,22 @@ def gemini_raw():
     keys_to_try = user_keys[:]
     uid = None
     
-    # If using server keys, verify Firebase Auth and check limits
-    if id_token and not user_keys:
-        verification, status = verify_and_check_limits(id_token)
-        if status != 200:
-            return jsonify(verification), status
-        uid = verification["uid"]
-        keys_to_try.extend(SERVER_KEYS)
+    used_admin = False
+    
+    if id_token:
+        if user_keys:
+            try:
+                decoded = auth.verify_id_token(id_token)
+                uid = decoded['uid']
+            except:
+                pass
+        else:
+            verification, status = verify_and_check_limits(id_token)
+            if status != 200:
+                return jsonify(verification), status
+            uid = verification["uid"]
+            keys_to_try.extend(SERVER_KEYS)
+            used_admin = True
     elif not user_keys:
         return jsonify({"error": "No API Keys or ID Token provided"}), 401
     
@@ -278,13 +287,20 @@ def gemini_json():
     uid = None
     used_admin = False
     
-    if id_token and not user_keys:
-        verification, status = verify_and_check_limits(id_token)
-        if status != 200:
-            return jsonify(verification), status
-        uid = verification["uid"]
-        keys_to_try.extend(verification.get("keys_to_try", []))
-        used_admin = verification.get("used_admin_keys", False)
+    if id_token:
+        if user_keys:
+            try:
+                decoded = auth.verify_id_token(id_token)
+                uid = decoded['uid']
+            except:
+                pass
+        else:
+            verification, status = verify_and_check_limits(id_token)
+            if status != 200:
+                return jsonify(verification), status
+            uid = verification["uid"]
+            keys_to_try.extend(verification.get("keys_to_try", []))
+            used_admin = verification.get("used_admin_keys", False)
     elif not user_keys:
         return jsonify({"error": "No API Keys or ID Token provided"}), 401
     
@@ -365,13 +381,20 @@ def gemini_stream():
     uid = None
     used_admin = False
     
-    if id_token and not user_keys:
-        verification, status = verify_and_check_limits(id_token)
-        if status != 200:
-            return jsonify(verification), status
-        uid = verification["uid"]
-        keys_to_try.extend(verification.get("keys_to_try", []))
-        used_admin = verification.get("used_admin_keys", False)
+    if id_token:
+        if user_keys:
+            try:
+                decoded = auth.verify_id_token(id_token)
+                uid = decoded['uid']
+            except:
+                pass
+        else:
+            verification, status = verify_and_check_limits(id_token)
+            if status != 200:
+                return jsonify(verification), status
+            uid = verification["uid"]
+            keys_to_try.extend(verification.get("keys_to_try", []))
+            used_admin = verification.get("used_admin_keys", False)
     elif not user_keys:
         return jsonify({"error": "No API Keys or ID Token provided"}), 401
     
