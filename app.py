@@ -134,6 +134,14 @@ def verify_and_check_limits(id_token):
     except Exception as e:
         return {"error": f"Invalid ID Token: {e}"}, 401
 
+def increment_personal_usage(uid, count):
+    if not count or count <= 0: return
+    try:
+        usage_ref = db.reference(f'users/{uid}/personalTokenUsage')
+        usage_ref.transaction(lambda current_val: (current_val or 0) + count)
+    except Exception as e:
+        print(f"Failed to increment personal usage for {uid}: {e}")
+
 def increment_usage(uid, count):
     if not count or count <= 0: return
     try:
@@ -234,10 +242,13 @@ def gemini_raw():
         try:
             text = result["candidates"][0]["content"]["parts"][0]["text"]
             
-            # Increment Token Usage securely only if admin keys were used
-            if uid and used_admin:
+            # Increment Token Usage securely
+            if uid:
                 tokens_used = result.get("usageMetadata", {}).get("totalTokenCount", 0)
-                increment_usage(uid, tokens_used)
+                if used_admin:
+                    increment_usage(uid, tokens_used)
+                else:
+                    increment_personal_usage(uid, tokens_used)
                 
             return jsonify({"text": text}), 200
         except KeyError:
@@ -290,10 +301,13 @@ def gemini_json():
             # Verify it's valid JSON before sending back
             parsed_json = json.loads(text)
             
-            # Increment Token Usage securely only if admin keys were used
-            if uid and used_admin:
+            # Increment Token Usage securely
+            if uid:
                 tokens_used = result.get("usageMetadata", {}).get("totalTokenCount", 0)
-                increment_usage(uid, tokens_used)
+                if used_admin:
+                    increment_usage(uid, tokens_used)
+                else:
+                    increment_personal_usage(uid, tokens_used)
                 
             return jsonify(parsed_json), 200
         except (KeyError, json.JSONDecodeError) as e:
@@ -358,6 +372,23 @@ def gemini_stream():
         def generate():
             for chunk in response.iter_content(chunk_size=1024):
                 if chunk:
+                    # Attempt to extract usage from chunk (it's JSON stream, usage might be at the end)
+                    try:
+                        import json
+                        chunk_str = chunk.decode('utf-8')
+                        if 'usageMetadata' in chunk_str and uid:
+                            # It's an SSE stream, so lines start with 'data: '
+                            for line in chunk_str.splitlines():
+                                if line.startswith('data: '):
+                                    data_obj = json.loads(line[6:])
+                                    if 'usageMetadata' in data_obj:
+                                        tokens = data_obj['usageMetadata'].get('totalTokenCount', 0)
+                                        if used_admin:
+                                            increment_usage(uid, tokens)
+                                        else:
+                                            increment_personal_usage(uid, tokens)
+                    except:
+                        pass
                     yield chunk
         return app.response_class(generate(), mimetype='text/event-stream')
     
