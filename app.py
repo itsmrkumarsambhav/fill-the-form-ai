@@ -203,7 +203,7 @@ def gemini_test():
     
     # Use standard 1.5-flash for testing
     if key.startswith("AIza"):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
         headers = {'Content-Type': 'application/json'}
     else:
         url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
